@@ -57,6 +57,7 @@
 }
 
 - (void)_addCloseBtn{
+    
     UIBarButtonItem * item0 = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
     item0.width = -20;
     UIButton * btn = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -72,7 +73,10 @@
     UIBarButtonItem * item2 = [[UIBarButtonItem alloc] initWithCustomView:btn2];
     self.navigationItem.leftBarButtonItems = @[item0,item1,item2];
     item2.customView.hidden = YES;
-
+    
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
+        self.navigationController.interactivePopGestureRecognizer.delegate = nil;   //解决设置导航栏leftItem 无法侧滑返回的问题
+    }
 }
 
 - (void)backClicked{
@@ -85,6 +89,14 @@
 }
 - (void)closeClicked{
      [self.navigationController popViewControllerAnimated:YES];
+}
+
+- (void)_dealWithCloseBtn{
+    if (self.webView.backForwardList.backList.count > 0) {
+        self.navigationItem.leftBarButtonItems[2].customView.hidden = NO;
+    }else{
+        self.navigationItem.leftBarButtonItems[2].customView.hidden = YES;
+    }
 }
 
 - (void)_addOberserver{
@@ -114,61 +126,70 @@
         WBLog(@"加载中");
     } else if ([keyPath isEqualToString:@"title"]){
         WBLog(@"设置标题");
-        self.title = self.webView.title;
+        [self _dealWithCloseBtn];//经过多次尝试，发现关闭按钮的显示时机在这里设置最合适
+        NSString * title = self.webView.title;
+        if (title.length > 5) {
+            title = [title substringToIndex:4];
+            title = [NSString stringWithFormat:@"%@...",title];
+        }
+        self.title = title;
     } else if ([keyPath isEqualToString:@"estimatedProgress"]){
-        WBLog(@"进度是%f", self.webView.estimatedProgress);
         if (!WB_USE_TIMER_PROGRESS) {
             [self.loadingView loadProgress:self.webView.estimatedProgress];
             if (self.webView.estimatedProgress >= 1.0) {
                 [self.loadingView endLoading];
-                WBLog(@"前面有几个页面%ld",self.webView.backForwardList.backList.count);
-                WBLog(@"后面有几个页面%ld",self.webView.backForwardList.forwardList.count);
-                if (self.webView.backForwardList.backList.count > 0) {
-                    self.navigationItem.leftBarButtonItems[2].customView.hidden = NO;
-                }else{
-                    self.navigationItem.leftBarButtonItems[2].customView.hidden = YES;
-                }
             }
         }
     }
 }
 
 #pragma mark - WKNavigationDelegate
-// 页面开始加载时调用Called when web content begins to load in a web view.
-- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation{
-}
-// 当内容开始返回时调用Called when the web view begins to receive web content.
-- (void)webView:(WKWebView *)webView didCommitNavigation:(WKNavigation *)navigation{
+// 在发送请求之前，决定是否跳转 第一步
+- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler{
     [self.loadingView startLoading];
+    WBLog(@"-------decidePolicyForNavigationAction-------")
+//    NSLog(@"%@",navigationAction.request.URL.absoluteString);
+    //允许跳转
+    decisionHandler(WKNavigationActionPolicyAllow);
 }
-// 页面加载完成之后调用Called when the navigation is complete.
+// 页面开始加载时调用Called when web content begins to load in a web view. 第二部
+- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation{
+    WBLog(@"---------didStartProvisionalNavigation--------");
+}
+// 在收到响应后，决定是否跳转 第三部
+- (void)webView:(WKWebView *)webView decidePolicyForNavigationResponse:(WKNavigationResponse *)navigationResponse decisionHandler:(void (^)(WKNavigationResponsePolicy))decisionHandler{
+    WBLog(@"------decidePolicyForNavigationResponse------")
+    decisionHandler(WKNavigationResponsePolicyAllow);
+    //不允许跳转
+    //decisionHandler(WKNavigationResponsePolicyCancel);
+}
+// 当内容开始返回时调用Called when the web view begins to receive web content. 第四部
+- (void)webView:(WKWebView *)webView didCommitNavigation:(WKNavigation *)navigation{
+    WBLog(@"------didCommitNavigation------");
+}
+// 页面加载完成之后调用Called when the navigation is complete. 第五不
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation{
     [self.loadingView endLoading];
+    WBLog(@"------didFinishNavigation------")
+//    if (self.webView.estimatedProgress >= 1.0) {
+//        [self _dealWithCloseBtn];
+//    }
     //OC执行js的时机，最早也是在这里
 }
 // 页面加载失败时调用
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation{
     [self.loadingView endLoading];
+    WBLog(@"------didFailProvisionalNavigation------");
+//    if (self.webView.estimatedProgress >= 1.0) {
+//        [self _dealWithCloseBtn];
+//    }
 }
 // 接收到服务器跳转请求之后调用
 - (void)webView:(WKWebView *)webView didReceiveServerRedirectForProvisionalNavigation:(WKNavigation *)navigation{
+    WBLog(@"------didReceiveServerRedirectForProvisionalNavigation-------")
 }
-// 在收到响应后，决定是否跳转
-- (void)webView:(WKWebView *)webView decidePolicyForNavigationResponse:(WKNavigationResponse *)navigationResponse decisionHandler:(void (^)(WKNavigationResponsePolicy))decisionHandler{
-    //   NSLog(@"%@",navigationResponse.response.URL.absoluteString);
-    //允许跳
-    decisionHandler(WKNavigationResponsePolicyAllow);
-    //不允许跳转
-    //decisionHandler(WKNavigationResponsePolicyCancel);
-}
-// 在发送请求之前，决定是否跳转
-- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler{
-    //    NSLog(@"%@",navigationAction.request.URL.absoluteString);
-    //允许跳转
-    decisionHandler(WKNavigationActionPolicyAllow);
-    //不允许跳转
-    //decisionHandler(WKNavigationActionPolicyCancel);
-}
+
+
 
 #pragma mark - WKUIDelegate
 
@@ -180,7 +201,6 @@
 
 // webview关闭时回调
 - (void)webViewDidClose:(WKWebView *)webView NS_AVAILABLE(10_11, 9_0){
-    
 }
 
 // 调用JS的alert()方法
